@@ -19,9 +19,9 @@ data( anoles )
 anoles.phy <- anoles$phy[[1]]
 
 ## ---- eval=FALSE---------------------------------------------------------
-#  handle <- ratematrixMCMC(data=anoles$data[,1:3], phy=anoles.phy, gen=500000, singlerate=TRUE
+#  anoles.single.regime <- mergeSimmap(phy = anoles.phy, drop.regimes = TRUE)
+#  handle <- ratematrixMCMC(data=anoles$data[,1:3], phy=anoles.single.regime, gen=500000
 #                           , dir=tempdir() )
-#  handle <- readRDS( "ratematrixMCMC.23182.mcmc.handle.rds" )
 #  mcmc <- readMCMC(handle, thin = 200)
 
 ## ---- echo=FALSE---------------------------------------------------------
@@ -54,11 +54,13 @@ id <- sample(x = 1:length(mcmc$matrix), size = 2)
 library( corpcor )
 corr <- lapply(R, function(x) decompose.cov(x)[[1]] )
 var <- lapply(R, function(x) decompose.cov(x)[[2]] )
-( start <- list(root, corr, var) )
+( start <- list(root = root, matrix = corr, sd = var) )
 
 ## ---- eval=FALSE---------------------------------------------------------
+#  undebug( ratematrixMCMC )
 #  ( custom.start.handle <- ratematrixMCMC(data=anoles$data[,1:3], phy=anoles.phy, start=start
-#                                          , gen=1000, dir=tempdir() ) )
+#                                          , gen=1000, dir=tempdir()) )
+#  
 
 ## ---- echo=FALSE---------------------------------------------------------
 load( system.file("extdata", "handle.start.point.tutorial.RData", package = "ratematrix") )

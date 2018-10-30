@@ -86,7 +86,7 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
     if( inherits(prior, what="character") && prior == "empirical_mean" ) cat("Using old default prior. \n")
     if( inherits(prior, what="character") && prior == "uniform_scaled" ) cat("Using new default prior. \n")
     if( inherits(start, what="character") && start == "prior_sample" ) cat("Using default starting point. \n")
-    if( v == 25 && w_sd == 0.5 && w_mu == 0.5 && prop[1] == 0.05 && prop[2] == 0.475 ) cat("Using default proposal settings. \n")
+    if( v == 50 && w_sd == 0.2 && w_mu == 0.5 && prop[1] == 0.05 && prop[2] == 0.475 ) cat("Using default proposal settings. \n")
 
     ## Check if provided prior has the correct dimension:
     if( inherits(prior, what="ratematrix_prior_function") ){
@@ -286,8 +286,8 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
                     fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy, dat=data[,x], model = "BM") )
                 }
                 guess.rates <- sapply(fit, function(x) coef(x)[1])
-                top.sd <- sqrt( ceiling(guess.rates) * 10 )
-                bottom.sd <- rep(0, times = length(top.sd))
+                top.sd <- sqrt( ceiling( max(guess.rates) ) * 10 )
+                bottom.sd <- 0
                 par.sd <- cbind(bottom.sd, top.sd)
                 prior_run <- makePrior(r=r, p=1, den.mu="norm", par.mu=data.range, par.sd=par.sd)
             }
@@ -320,7 +320,6 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
             }
         }
 
-        ## Notice that singleRegimeMCMC will break now because of the 'prop' vector.
         out_single <- singleRegimeMCMC(X=data, phy=phy, start=start_run, prior=prior_run, gen=gen, v=v, w_sd=w_sd, w_mu=w_mu
                                      , prop=prop, dir=dir, outname=outname, IDlen=IDlen, traits=trait.names
                                       , save.handle=save.handle)
@@ -370,9 +369,9 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
                     fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy, dat=data[,x], model = "BM") )
                 }
                 guess.rates <- sapply(fit, function(x) coef(x)[1])
-                top.sd <- sqrt( ceiling(guess.rates) * 10 )
-                bottom.sd <- rep(0, times = length(top.sd))
-                par.sd <- cbind(bottom.sd, top.sd)
+                top.sd <- sqrt( ceiling( max(guess.rates) ) * 10 )
+                rep.sd.regime <- rep(c(0,top.sd), times=p)
+                par.sd <- matrix(data=rep.sd.regime, nrow=p, ncol=2, byrow=TRUE)
                 prior_run <- makePrior(r=r, p=p, den.mu="norm", par.mu=data.range, par.sd=par.sd)
             }
         }
