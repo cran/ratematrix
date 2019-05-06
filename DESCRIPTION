@@ -1,6 +1,6 @@
 Package: ratematrix
 Title: Bayesian Estimation of the Evolutionary Rate Matrix
-Version: 1.1
+Version: 1.2
 Authors@R: c(
     person("Daniel", "Caetano", email = "caetanods1@gmail.com", role = c("aut", "cre")),
     person("Luke", "Harmon", email = "lukeh@uidaho.edu", role = "aut") )
@@ -14,12 +14,12 @@ Imports: ape, geiger, coda, corpcor, MASS, phylolm, readr, mvMORPH,
 Suggests: microbenchmark, knitr, rmarkdown, phytools
 VignetteBuilder: knitr
 LinkingTo: Rcpp, RcppArmadillo
-RoxygenNote: 6.0.1
+RoxygenNote: 6.1.1
 NeedsCompilation: yes
-Packaged: 2018-10-30 14:26:22 UTC; daniel
+Packaged: 2019-05-06 20:21:49 UTC; daniel
 Author: Daniel Caetano [aut, cre],
   Luke Harmon [aut]
 Maintainer: Daniel Caetano <caetanods1@gmail.com>
 Depends: R (>= 2.10)
 Repository: CRAN
-Date/Publication: 2018-10-30 15:00:03 UTC
+Date/Publication: 2019-05-06 21:00:02 UTC

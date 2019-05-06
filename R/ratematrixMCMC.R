@@ -20,7 +20,9 @@
 ##' @param phy a phylogeny of the class "simmap" with the mapped regimes for two or more R regimes OR a phylogeny of the class "phylo" for a single regime. The number of evolutionary rate matrices fitted to the phylogeny is equal to the number of regimes in 'phy'. Regime names will also be used. 'phy' can also be a list of phylogenies. See 'Details'.
 ##' @param prior the prior densities for the MCMC. Must be one of "uniform", "uniform_scaled" (the default, see 'Details'), "empirical_mean", or the output of the "makePrior" function. See more information on 'makePrior' and in the examples below.
 ##' @param start the starting state for the MCMC chain. Must be one of "prior_sample" (the default), "mle", or a sample from the prior generated with the "samplePrior" functions.
-##' @param gen number of generations for the chain.
+##' @param gen number of generations for the chain. The final number of posterior samples is equal to "(gen*burn)/thin".
+##' @param burn the fraction of the chain for the burnin (not written to file). A numeric value between 0 and 1 (i.e., 0 means no burnin). The final number of posterior samples is equal to "(gen*burn)/thin".
+##' @param thin the number of generations to be skipped between each sample of the posterior. The final number of posterior samples is equal to "(gen*burn)/thin".
 ##' @param v value for the degrees of freedom parameter of the inverse-Wishart proposal distribution for the correlation matrix. Smaller values provide larger steps and larger values provide smaller steps. (Yes, it is counterintuitive.) This needs to be a single value applied to all regimes or a vector with the same length as the number of regimes.
 ##' @param w_sd the multiplying factor for the multiplier proposal on the vector of standard deviations. This can be a single value to be used for the sd of all traits for all regimes or a matrix with number of columns equal to the number of regimes and number of rows equal to the number of traits. If a matrix, then each element will be used to control the correspondent width of the standard deviation.
 ##' @param w_mu value for the width of the sliding window proposal for the vector of root values (phylogenetic mean). This can be a single value to be used for the root value of all traits or a vector of length equal to the number of traits. If a vector, then each element will be used as the width of the proposal distribution for each trait in the same order as the columns in 'data'. When 'prior="uniform_scaled"' (the default) this parameter is computed from the data.
@@ -31,6 +33,10 @@
 ##' @param save.handle whether the handle for the MCMC should be saved to the directory in addition to the output files.
 ##' @return Function returns the 'handle' object and writes the posterior distribution and log as files in the directory (see 'dir'). The handle is a list with the details of the MCMC chain. It is composed by: *k* the number of traits; *p* the number of R regimes fitted to the tree; *ID* the unique identifier of the run; *dir* the directory where the posterior and log files were saved; *outname* the name for the chain; *trait.names* a vector with the label for the traits; *regime.names* a vector with the label for the rate regimes; *data* the data used in the analysis; *phy* a single phylogeny or the list of phylogenies; *prior* a list with the prior functions; *start* a list with the starting parameters for the chain; *gen* the number of generations for the chain; *mcmc.par* a list with the tunning parameters for the MCMC.
 ##' @author Daniel S. Caetano and Luke J. Harmon
+##' @references Revell, L. J., and L. J. Harmon. 2008. Testing quantitative genetic hypotheses about the evolutionary rate matrix for continuous characters. Evolutionary Ecology Research 10:311.
+##' @references Revell, L. J., and D. C. Collar. 2009. Phylogenetic Analysis of the Evolutionary Correlation Using Likelihood. Evolution 63:1090–1100.
+##' @references Caetano, D. S., and L. J. Harmon. 2017. ratematrix: An R package for studying evolutionary integration among several traits on phylogenetic trees. Methods in Ecology and Evolution 8:1920–1927.
+##' @references Caetano, D. S., and L. J. Harmon. 2018. Estimating Correlated Rates of Trait Evolution with Uncertainty. Systematic Biology, doi: 10.1093/sysbio/syy067.
 ##' @export
 ##' @importFrom mvMORPH mvBM
 ##' @importFrom corpcor decompose.cov
@@ -68,11 +74,16 @@
 ##' plotRatematrix(merged.posterior)
 ##' plotRootValue(merged.posterior)
 ##' }
-ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sample", gen, v=50, w_sd=0.2, w_mu=0.5, prop=c(0.05, 0.475, 0.475), dir=NULL, outname="ratematrixMCMC", IDlen=5, save.handle=TRUE){
+ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sample", gen = 1000000, burn = 0.25, thin = 100, v=50, w_sd=2, w_mu=0.5, prop=c(0.05, 0.475, 0.475), dir=NULL, outname="ratematrixMCMC", IDlen=5, save.handle=TRUE){
 
     ## #######################
     ## Block to check arguments, give warnings and etc.
 
+    ## Check burn and thin and create the vector of generations.
+    ## Note here that the first generation is gen 0.
+    post_seq <- seq(from = gen * burn, to = (gen-1), by = thin)
+    post_seq <- post_seq + 1 ## Bounce the generation vector forward to start from 1.
+    
     ## Quickly check if a directory was provide. If not return an error.
     if( is.null(dir) ) stop('Need to provide a path to write MCMC samples. Use dir="." to write files to current directory.')
     if( !inherits(dir, what="character") ) stop("Value for argument 'dir' need to be a character. See help page.")
@@ -255,6 +266,19 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
         
         r <- ncol( data )
 
+        ## Check if 'w_sd' is a matrix, then make it a vector:
+        if( is.matrix( w_sd ) ){
+            if( ncol(w_sd) == 1 & nrow == r ){
+                w_sd <- as.numeric( w_sd[,1] )
+            } else{
+                stop( "Parameter w_sd needs to be a single value or a matrix with number of columns equal to the number of regimes (i.e., 1) and number of rows equal to the number of traits. See help page." )
+            }
+        } else{
+            if( length( w_sd > 1 ) ){
+                if( !length( w_sd == r ) ) stop( "Length of w_sd vector needs to be equal to the number of traits.")
+            }
+        }
+
         ## #######################
         ## Block to generate priors.
         prior_run <- prior
@@ -281,9 +305,11 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
                 w_mu <- ( data.range[,2] - data.range[,1] ) / 10
                 cat("Guessing magnitude of rates from the data. \n")
                 if( is.list(phy[[1]]) ){ ## List of phylo.
-                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy[[1]], dat=data[,x], model = "BM") )
+                    ## Using a single core to compute BM model.
+                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy[[1]], dat=data[,x], model = "BM", ncores = 1) )
                 } else{ ## Only one phylo.
-                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy, dat=data[,x], model = "BM") )
+                    ## Using a single core to compute BM model.
+                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy, dat=data[,x], model = "BM", ncores = 1) )
                 }
                 guess.rates <- sapply(fit, function(x) coef(x)[1])
                 top.sd <- sqrt( ceiling( max(guess.rates) ) * 10 )
@@ -364,9 +390,11 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
                 w_mu <- ( data.range[,2] - data.range[,1] ) / 10
                 cat("Guessing magnitude of rates from the data. \n")
                 if( is.list(phy[[1]]) ){ ## List of phylo.
-                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy[[1]], dat=data[,x], model = "BM") )
+                    ## Using a single core to compute BM model.
+                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy[[1]], dat=data[,x], model = "BM", ncores = 1) )
                 } else{ ## Only one phylo.
-                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy, dat=data[,x], model = "BM") )
+                    ## Using a single core to compute BM model.
+                    fit <- lapply(1:ncol(data), function(x) fitContinuous(phy = phy, dat=data[,x], model = "BM", ncores = 1) )
                 }
                 guess.rates <- sapply(fit, function(x) coef(x)[1])
                 top.sd <- sqrt( ceiling( max(guess.rates) ) * 10 )
@@ -409,7 +437,7 @@ ratematrixMCMC <- function(data, phy, prior="uniform_scaled", start="prior_sampl
             }
         }
         
-        out_mult <- multRegimeMCMC(X=data, phy=phy, start=start_run, prior=prior_run, gen=gen, v=v, w_sd=w_sd, w_mu=w_mu
+        out_mult <- multRegimeMCMC(X=data, phy=phy, start=start_run, prior=prior_run, gen=gen, post_seq=post_seq, v=v, w_sd=w_sd, w_mu=w_mu
                                  , prop=prop, dir=dir, outname=outname, IDlen=IDlen, regimes=regime.names, traits=trait.names
                                    , save.handle=save.handle, add.gen=NULL)
         return( out_mult )
