@@ -31,7 +31,7 @@
 ##' }
 testRatematrix <- function(chain, par=c("all","correlation","rates"), diff.test=FALSE, median.test=FALSE, regimes=NULL, plot=FALSE){
 
-    par <- match.arg(par)
+    par <- match.arg(par, choices = c("all","correlation","rates"), several.ok = FALSE)
 
     if( inherits(chain, what=c("ratematrix_single_chain", "ratematrix_multi_chain")) ){
         if( inherits(chain, what=c("ratematrix_single_chain")) ){
@@ -77,22 +77,20 @@ testRatematrix <- function(chain, par=c("all","correlation","rates"), diff.test=
     }
     if(par == "correlation"){
         ## This part will break if the rate matrix is 2x2. The median do not need to be calculated.
-        if( ncol( chain$matrix[[1]][[1]] ) > 2 ){
-            upper <- upper.tri( chain$matrix[[1]][[1]] )
-            for(i in 1:ncol(comb)){
-                mat1 <- t( sapply(chain$matrix[[comb[1,i]]], function(x) c( stats::cov2cor(x)[upper] ) ) )
-                mat2 <- t( sapply(chain$matrix[[comb[2,i]]], function(x) c( stats::cov2cor(x)[upper] ) ) )
-                mat.diff[[i]] <- mat1 - mat2
-            }
-        } else{
-            upper <- upper.tri( chain$matrix[[1]][[1]] )
-            for(i in 1:ncol(comb)){
-                mat1 <- t( sapply(chain$matrix[[comb[1,i]]], function(x) c( stats::cov2cor(x)[upper] ) ) )
-                mat2 <- t( sapply(chain$matrix[[comb[2,i]]], function(x) c( stats::cov2cor(x)[upper] ) ) )
-                mat.diff[[i]] <- mat1 - mat2
-            }
+        upper <- upper.tri( chain$matrix[[1]][[1]] )
+        for(i in 1:ncol(comb)){
+            mat1 <- t( sapply(chain$matrix[[comb[1,i]]], function(x) c( stats::cov2cor(x)[upper] ) ) )
+            mat2 <- t( sapply(chain$matrix[[comb[2,i]]], function(x) c( stats::cov2cor(x)[upper] ) ) )
+            mat.diff[[i]] <- mat1 - mat2
         }
     }
+
+    if(par == "correlation"){
+        ## Check if the matrix is 2x2. Then DO NOT return the median test.
+        if( ncol( chain$matrix[[1]][[1]] ) == 2 ){
+            median.test <- FALSE
+        }
+    }  
 
     if(median.test){
         median.diff <- lapply(mat.diff, function(x) apply(x, 1, stats::median))
@@ -106,7 +104,7 @@ testRatematrix <- function(chain, par=c("all","correlation","rates"), diff.test=
     }
     
     if(!median.test){
-        overlap <- lapply(mat.diff, FUN=function(x) getOverlap(x, r=r))
+        overlap <- lapply(mat.diff, FUN=function(x) getOverlap(x, r=r, par=par))
 
         ## The output for the correlations looks strange because we loose the info of the order of the traits.
         ## Here I will re-format the output if the test is made on the correlations.
@@ -124,17 +122,7 @@ testRatematrix <- function(chain, par=c("all","correlation","rates"), diff.test=
             main <- paste("Regime ", names(chain$matrix)[comb[1,]], " x ", names(chain$matrix)[comb[2,]], sep="")
         }
         if(plot){
-            n <- length( overlap.mat )
-            old.par <- par(no.readonly = TRUE)
-            ## Decide the size of the mfrow plot to return. Works up to 12 regimes. Otherwise the function will just return a lot of plots.
-            if( n == 1 ) plotHeatmat(mat=overlap.mat[[1]], r=r, par=par, main=main[1])
-            if( n > 1 & n < 4 ) par( mfrow = c(1,3) )
-            if( n == 4 ) par( mfrow = c(2,2) )
-            if( n > 4 & n < 7 ) par( mfrow = c(2,3))
-            if( n > 6 & n < 10 ) par( mfrow = c(3,3))
-            if( n > 9 & n < 13 ) par( mfrow = c(3,4))
-            lapply(1:n, function(x) plotHeatmat(mat=overlap.mat[[x]], r=r, par=par, main=main[x]) )
-            par(old.par)
+            plotHeatmat(mat=overlap.mat, r=r, par=par, main=main, n.plots=length(overlap.mat))
         }
         names( overlap.mat ) <- main
         return( list(overlap.mat) )
@@ -142,12 +130,24 @@ testRatematrix <- function(chain, par=c("all","correlation","rates"), diff.test=
 }
 
 ## Some helping functions for the output:
-getOverlap <- function(mt.dif, r){
+getOverlap <- function(mt.dif, r, par = NULL){
+    ## r = number of traits.
     if( r == 2 ){
-        cdf <- stats::ecdf(mt.dif[1,])
-        qq <- cdf(0)
-        test <- 2 * min(qq,1-qq)
-        return( test ) ## Single number.
+        if( par == "correlation" ){
+            ## We have a single value. Need to call the row.
+            cdf <- stats::ecdf(mt.dif[1,])
+            qq <- cdf(0)
+            test <- 2 * min(qq,1-qq)
+            return( test ) ## Single number.
+        } else{
+            ## We have multiple values. Need to go throught the columns.
+            nc <- ncol(mt.dif)
+            cdf.list <- lapply(1:nc, function(x) stats::ecdf(mt.dif[,x]))
+            qq.list <- lapply(cdf.list, FUN = function(x) x(0) )
+            test <- lapply(qq.list, FUN = function(x) 2*apply(cbind(x, 1-x), 1, min) )
+            test.dt <- do.call(cbind, test)
+            return( as.vector(test.dt) )
+        }
     } else{
         nc <- ncol(mt.dif)
         cdf.list <- lapply(1:nc, function(x) stats::ecdf(mt.dif[,x]))
@@ -158,26 +158,44 @@ getOverlap <- function(mt.dif, r){
     }
 }
 
-plotHeatmat <- function(mat, r, par, main){
-    if( par=="rates" ){
-        na.mat <- matrix(NA, nrow=r, ncol=r)
-        diag(na.mat) <- unlist( mat )
-        plot.mat <- na.mat
-    } else{
-        plot.mat <- mat
+plotHeatmat <- function(mat, r, par, main, n.plots){
+
+    ## Keep the current parameters for the plot.
+    old.par <- par(no.readonly = TRUE)
+    ## Adjust plot parameters.
+    if( n.plots == 1 ) par( mar=c(2,2,4,2) )
+    if( n.plots > 1 & n.plots < 4 ) par( mfrow = c(1,3), mar=c(2,2,4,2) )
+    if( n.plots == 4 ) par( mfrow = c(2,2), mar=c(2,2,4,2) )
+    if( n.plots > 4 & n.plots < 7 ) par( mfrow = c(2,3), mar=c(2,2,4,2) )
+    if( n.plots > 6 & n.plots < 10 ) par( mfrow = c(3,3), mar=c(2,2,4,2) )
+    if( n.plots > 9 & n.plots < 13 ) par( mfrow = c(3,4), mar=c(2,2,4,2) )
+
+    ## Big for loop to make the plots:
+    for( j in 1:n.plots ){
+        mat.tmp <- mat[[j]]
+        main.tmp <- main[j]
+        
+        if( par=="rates" ){
+            na.mat.tmp <- matrix(NA, nrow=r, ncol=r)
+            diag(na.mat.tmp) <- unlist( mat.tmp )
+            plot.mat.tmp <- na.mat.tmp
+        } else{
+            plot.mat.tmp <- mat.tmp
+        }
+        
+        rot.mat.tmp <- t(apply(plot.mat.tmp, 2, rev))
+        ## Need to rotate the matrix 90 degrees because of the behavior of the 'image' function.
+        x <- y <- 1:r
+        
+        ## Set a better color pallette.
+        col <- grDevices::heat.colors(15)
+        breaks <- c(0, exp(seq(log(0.0001), log(1), length.out = 15)))
+        graphics::image(x=x, y=y, z=rot.mat.tmp, xaxt= "n", yaxt= "n", xlab="", ylab="", main=main.tmp
+                      , col=col, breaks=breaks)
+        x.text <- rep(1:r, times=r)
+        y.text <- rep(1:r, each=r)
+        graphics::text(x=x.text, y=y.text, round(rot.mat.tmp, digits=4))
     }
     
-    rot.mat <- t(apply(plot.mat, 2, rev))
-    ## Need to rotate the matrix 90 degrees because of the behavior of the 'image' function.
-    x <- y <- 1:r
-    old.par <- par(no.readonly = TRUE)
-    par( mar=c(2,2,4,2) )
-    ## Set a better color pallette.
-    col <- grDevices::heat.colors(15)
-    breaks <- c(0, exp(seq(log(0.0001), log(1), length.out = 15)))
-    graphics::image(x=x, y=y, z=rot.mat, xaxt= "n", yaxt= "n", xlab="", ylab="", main=main, col=col, breaks=breaks)
-    x.text <- rep(1:r, times=r)
-    y.text <- rep(1:r, each=r)
-    graphics::text(x=x.text, y=y.text, round(rot.mat, digits=4))
     par(old.par)
 }
