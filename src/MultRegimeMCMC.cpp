@@ -138,7 +138,7 @@ arma::mat makeSimmapMappedEdge(arma::uword n_nodes, arma::uword n_tips, arma::uw
 	while( true ){
 	  
 	  // Here we record the number of times to make a valid simulation on the branch.
-	  // We use the argument 'sims_limit' to break the stochastic map is the number of simulations
+	  // We use the argument 'sims_limit' to break the stochastic map if the number of simulations
 	  //    pass this limit. This particular proposal of stochastic map will be rejected by the MCMC.
 	  sims_trials++;
 	  if( sims_limit > 0 ){
@@ -186,7 +186,7 @@ arma::mat makeSimmapMappedEdge(arma::uword n_nodes, arma::uword n_tips, arma::uw
 arma::mat makeSimmapMaps(arma::uword n_nodes, arma::uword n_tips, arma::uword n_states, arma::vec edge_len, arma::mat edge_mat, arma::vec parents, arma::mat X, arma::mat Q, int root_node, bool root_type, int max_nshifts) {
   // Same as the previous function. But this returns the 'maps' information that allow for reconstruction of the 'phytools' maps element.
   // Function works by assuming that the order of the rows in sim_node_states is the same as in recon_states below. This follows because of the code in 'getReconStates' function.
-
+ 
   // Define containers:
   int nrow_mapped_edge = edge_mat.n_rows;
   double time_chunk;
@@ -223,7 +223,7 @@ arma::mat makeSimmapMaps(arma::uword n_nodes, arma::uword n_tips, arma::uword n_
   }
   
   // The C++ code is not very efficient with growing vectors. So here we need to set a maximum number of per branch shifts events to work on the stochastic maps.
-  Rcout << "Max capacity for shifts on branches: " << max_nshifts << "\n";
+  // Rcout << "Max capacity for shifts on branches: " << max_nshifts << "\n";
   arma::umat maps_state = umat(nrow_mapped_edge, max_nshifts);
   maps_state.fill(n_states); // Help distinguish unnused entries.
   arma::mat maps_edge = mat(nrow_mapped_edge, max_nshifts, fill::zeros); // Zero entries are unnused.
@@ -272,7 +272,7 @@ arma::mat makeSimmapMaps(arma::uword n_nodes, arma::uword n_tips, arma::uword n_
       // The starting state for the simulation is 'curr_state'
       curr_state = anc_state; // Because 'anc_state' is fixed and curr_state will change.
       maps_state(i, id_shift) = anc_state;
-	  
+
       while( true ){
 	// Time until the next event:
 	if( -1.0 * Q(curr_state,curr_state) <= 0 ){
@@ -295,6 +295,17 @@ arma::mat makeSimmapMaps(arma::uword n_nodes, arma::uword n_tips, arma::uword n_
 	// Updates the current state. Take a conditional sample based on Q:
 	sample_index = rMultinom( trans( trans_table_prob.row( curr_state ) ) );
 	curr_state = trans_table_index(curr_state, sample_index);
+	
+	// Check if the maximum number of events has been reached. Then return 0.
+	if( id_shift+1 >= maps_state.n_cols ){
+	  Rcout << "\n";
+	  Rcout << "Max number of events on a branch reached! \n";
+	  Rcout << "Please increase the value for the max_nshifts parameter. See Details. \n";
+	  // Return a vector of 0.
+	  arma::mat return_null = mat(2, 2, fill::zeros);
+	  return return_null;
+	}
+	
 	maps_state(i, id_shift+1) = curr_state; // Move to the next shift.
 	id_shift++; // Advance the counter.
       }
@@ -1216,6 +1227,54 @@ std::string runRatematrixMultiMCMC_C(arma::mat X, int k, int p, arma::mat nodes,
   return "Done.";
 }
 
+// [[Rcpp::export]]
+arma::mat buildQ(arma::vec vec_Q, arma::uword size, std::string model_Q){
+  // Function to re-build the Q matrix.
+  // February 2021: Function was exported to be able to use it to read in the MCMC.
+  // Need to follow the same pattern used to extract the vector.
+  arma::mat Q = mat(size, size, fill::zeros);
+  
+  if( model_Q == "ER" ){
+    Q.fill(vec_Q[0]);
+    // Now fill the diagonal.
+    for( arma::uword i=0; i < size; i++ ){
+      Q(i,i) = -1.0 * ( sum( Q.row(i) ) - vec_Q[0] );
+    }
+  } else if( model_Q == "SYM" ){
+    Q.fill(0); // Fill the matrix with 0.
+    arma::uword count = 0;
+    // Go over the matrix and fill the upper and lower-tri.
+    for( arma::uword i=0; i < size; i++ ){
+      for( arma::uword j=0; j < size; j++ ){
+	if( i >= j ) continue;
+	Q(i,j) = vec_Q[count];
+	Q(j,i) = vec_Q[count]; // The trick to fill the lower-tri.
+	count++;
+      }
+    }
+    // Now fill the diagonal.
+    for( arma::uword i=0; i < size; i++ ){
+      Q(i,i) = -1.0 * sum( Q.row(i) );
+    }
+  } else{ // model_Q == "ARD"
+    Q.fill(0); // Fill the matrix with 0.
+    arma::uword count = 0;
+    // Go over the matrix and fill the upper and lower-tri.
+    for( arma::uword i=0; i < size; i++ ){
+      for( arma::uword j=0; j < size; j++ ){
+	if( i == j ) continue;
+	Q(i,j) = vec_Q[count];
+	count++;
+      }
+    }
+    // Now fill the diagonal.
+    for( arma::uword i=0; i < size; i++ ){
+      Q(i,i) = -1.0 * sum( Q.row(i) );
+    }
+  }
+
+  return Q;
+}
 
 // [[Rcpp::export]]
 std::string runRatematrixMCMC_jointMk_C(arma::mat X, arma::mat datMk, arma::uword k, arma::uword p, arma::vec nodes, arma::uword n_tips, arma::uvec des, arma::uvec anc, arma::uvec names_anc, arma::mat mapped_edge, arma::mat edge_mat, arma::uword n_nodes, arma::mat Q, double w_Q, std::string model_Q, int root_type, std::string den_Q, arma::vec par_prior_Q, arma::cube R, arma::vec mu, arma::mat sd, arma::cube Rcorr, arma::vec w_mu, arma::mat par_prior_mu, std::string den_mu, arma::mat w_sd, arma::mat par_prior_sd, std::string den_sd, arma::vec nu, arma::cube sigma, arma::vec v, std::string log_file, std::string mcmc_file, std::string Q_mcmc_file, arma::vec par_prob, arma::uword gen, arma::vec post_seq, int write_header, arma::uword sims_limit){
