@@ -20,9 +20,9 @@ anoles.phy <- anoles$phy[[1]]
 
 ## ---- eval=FALSE--------------------------------------------------------------
 #  anoles.single.regime <- mergeSimmap(phy = anoles.phy, drop.regimes = TRUE)
-#  handle <- ratematrixMCMC(data=anoles$data[,1:3], phy=anoles.single.regime, gen=500000
-#                           , dir=tempdir() )
-#  mcmc <- readMCMC(handle, thin = 200)
+#  handle <- ratematrixMCMC(data=anoles$data[,1:3], phy=anoles.single.regime, gen=200000
+#                           , dir=tempdir())
+#  mcmc <- readMCMC(handle, thin = 100, burn = 0.5)
 
 ## ---- echo=FALSE--------------------------------------------------------------
 load( system.file("extdata", "mcmc.start.point.tutorial.RData", package = "ratematrix") )
@@ -46,9 +46,9 @@ length( mcmc$matrix )
 mcmc$matrix[[1]]
 
 ## -----------------------------------------------------------------------------
-id <- sample(x = 1:length(mcmc$matrix), size = 2)
-( root <- as.numeric( mcmc$root[id[1],] ) ) ## Just one sample.
-( R <- mcmc$matrix[id] ) ## Two samples in our case.
+id <- sample(x = 1:length(mcmc$matrix), size = 1)
+( root <- as.numeric( mcmc$root[id,] ) ) ## Just one sample.
+( R <- mcmc$matrix[c(id, id)] ) ## Two samples in our case.
 
 ## -----------------------------------------------------------------------------
 library( corpcor )
@@ -57,7 +57,6 @@ var <- lapply(R, function(x) decompose.cov(x)[[2]] )
 ( start <- list(root = root, matrix = corr, sd = var) )
 
 ## ---- eval=FALSE--------------------------------------------------------------
-#  undebug( ratematrixMCMC )
 #  ( custom.start.handle <- ratematrixMCMC(data=anoles$data[,1:3], phy=anoles.phy, start=start
 #                                          , gen=1000, dir=tempdir()) )
 #  
